@@ -22,6 +22,8 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
     <script src="https://unpkg.com/html5-qrcode"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
 
     <style>
         body { background-color: #f0f2f5; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 0.9rem; padding-bottom: 70px; }
@@ -505,6 +507,88 @@
     let currentSessionItems = []; 
     let isEditingMode = false;
     const myTabId = Math.random().toString(36).substring(2, 10);
+    const firebaseConfig = {
+  apiKey: "AIzaSyD81vs5I523lxfqP82WwJyfXk2qLGS66rI",
+  authDomain: "artsoft-order.firebaseapp.com",
+  projectId: "artsoft-order",
+  storageBucket: "artsoft-order.firebasestorage.app",
+  messagingSenderId: "489049881394",
+  appId: "1:489049881394:web:8b0a1ea0e9e7587a5f752b",
+  measurementId: "G-DLFFEQD5QB"
+};
+
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.database("https://artsoft-order-default-rtdb.asia-southeast1.firebasedatabase.app/");
+    // ==========================================
+    // PENDENGAR MASTER PRODUK & CUSTOMER REAL-TIME
+    // ==========================================
+    db.ref('master_produk').on('value', (snapshot) => {
+        let cloudProduk = snapshot.val();
+        if (cloudProduk && Array.isArray(cloudProduk) && cloudProduk.length > 0) {
+            masterProduk = cloudProduk;
+            localStorage.setItem('artsoft_masterProd', JSON.stringify(masterProduk));
+            if (typeof initProductAutocomplete === 'function') initProductAutocomplete();
+            let statusProd = document.getElementById('statusProduk');
+            if (statusProd) {
+                statusProd.className = 'text-success fw-bold mb-1';
+                statusProd.innerText = `✔️ ${masterProduk.length} Data (Real-Time Cloud)`;
+            }
+        }
+    });
+
+    db.ref('master_customer').on('value', (snapshot) => {
+        let cloudCustomer = snapshot.val();
+        if (cloudCustomer && Array.isArray(cloudCustomer) && cloudCustomer.length > 0) {
+            masterCustomer = cloudCustomer;
+            localStorage.setItem('artsoft_masterCust', JSON.stringify(masterCustomer));
+            if (typeof initCustomerAutocomplete === 'function') initCustomerAutocomplete();
+            let statusCust = document.getElementById('statusCustomer');
+            if (statusCust) {
+                statusCust.className = 'text-success fw-bold mb-1';
+                statusCust.innerText = `✔️ ${masterCustomer.length} Data (Real-Time Cloud)`;
+            }
+        }
+    });
+    function updateStockOnline(kodeProduk, jumlahPerubahan) {
+        let stokRef = db.ref('stok_produk/' + kodeProduk);
+        stokRef.transaction(function(stokSaatIni) {
+            if (stokSaatIni === null) {
+                let found = masterProduk.find(p => p.kode === kodeProduk);
+                stokSaatIni = found ? (parseFloat(found.stock) || 0) : 0;
+            }
+            let stokBaru = stokSaatIni + jumlahPerubahan;
+            return (stokBaru < 0) ? 0 : stokBaru;
+        }, function(error, committed, snapshot) {
+            if (committed) {
+                let updatedStock = snapshot.val();
+                let found = masterProduk.find(p => p.kode === kodeProduk);
+                if (found) {
+                    found.stock = updatedStock;
+                    try { localStorage.setItem('artsoft_masterProd', JSON.stringify(masterProduk)); } catch(e) {}
+                }
+            }
+        });
+    }
+
+    // ==========================================
+    // PENDENGAR PERUBAHAN STOK REAL-TIME
+    // ==========================================
+    db.ref('stok_produk').on('value', (snapshot) => {
+        let dataStokOnline = snapshot.val();
+        if (dataStokOnline && masterProduk.length > 0) {
+            masterProduk.forEach(p => {
+                if (dataStokOnline[p.kode] !== undefined) {
+                    p.stock = dataStokOnline[p.kode];
+                }
+            });
+            localStorage.setItem('artsoft_masterProd', JSON.stringify(masterProduk));
+            
+            let modalStock = document.getElementById('stockReportModal');
+            if (modalStock && modalStock.style.display === 'flex' && typeof filterStockReport === 'function') {
+                filterStockReport(); 
+            }
+        }
+    });
     
     // FORMAT RUPIAH PADA INPUT DISC RUPIAH
     function formatDiscRpInput(elem) {
@@ -1401,7 +1485,8 @@
         let file = e.target.files[0];
         if (!file) return;
         let statusEl = document.getElementById('statusCustomer');
-        statusEl.className = 'text-primary fw-bold mb-1'; statusEl.innerText = '⏳ Loading...';
+        statusEl.className = 'text-primary fw-bold mb-1'; statusEl.innerText = '⏳ Mengunggah ke Cloud...';
+        
         let reader = new FileReader();
         reader.onload = function(evt) {
             try {
@@ -1411,12 +1496,26 @@
                     nama: getCellValue(row, ['custname', 'namatoko', 'nama']),
                     alamat: getCellValue(row, ['address1', 'address', 'alamat'])
                 })).filter(c => c.nama !== "");
+                
                 if (masterCustomer.length > 0) {
-                    statusEl.className = 'text-success fw-bold mb-1'; statusEl.innerText = `✔️ ${masterCustomer.length} Data (Baru)`;
-                    localStorage.setItem('artsoft_masterCust', JSON.stringify(masterCustomer));
-                    initCustomerAutocomplete(); toggleMasterUploadPanel();
-                } else { statusEl.className = 'text-danger fw-bold mb-1'; statusEl.innerText = '❌ Format Salah'; }
-            } catch (err) { statusEl.innerText = '❌ Error'; }
+                    // KIRIM KE FIREBASE PUSAT
+                    db.ref('master_customer').set(masterCustomer, (error) => {
+                        if (error) {
+                            statusEl.className = 'text-danger fw-bold mb-1'; statusEl.innerText = '❌ Gagal ke Cloud';
+                            artAlert("Gagal menyimpan customer ke Cloud Firebase.");
+                        } else {
+                            statusEl.className = 'text-success fw-bold mb-1'; statusEl.innerText = `✔️ ${masterCustomer.length} Data (Cloud OK)`;
+                            localStorage.setItem('artsoft_masterCust', JSON.stringify(masterCustomer));
+                            initCustomerAutocomplete(); toggleMasterUploadPanel();
+                            artAlert("Data Customer berhasil di-update ke pusat untuk semua HP!");
+                        }
+                    });
+                } else { 
+                    statusEl.className = 'text-danger fw-bold mb-1'; statusEl.innerText = '❌ Format Salah'; 
+                }
+            } catch (err) { 
+                statusEl.innerText = '❌ Error Parsing'; 
+            }
         };
         reader.readAsArrayBuffer(file);
     }
@@ -1432,11 +1531,12 @@
         return s;
     }
 
-    function handleUploadProduk(e) {
+   function handleUploadProduk(e) {
         let file = e.target.files[0];
         if (!file) return;
         let statusEl = document.getElementById('statusProduk');
-        statusEl.className = 'text-primary fw-bold mb-1'; statusEl.innerText = '⏳ Loading...';
+        statusEl.className = 'text-primary fw-bold mb-1'; statusEl.innerText = '⏳ Mengunggah ke Cloud...';
+        
         let reader = new FileReader();
         reader.onload = function(evt) {
             try {
@@ -1451,12 +1551,32 @@
                     harga: parseFloat(getCellValue(row, ['harga', 'price', 'hargajual'])) || 0,
                     stock: parseFloat(getCellValue(row, ['stock', 'stok', 'akhirstock', 'stockakhir'])) || 0
                 })).filter(p => p.nama !== "");
+                
                 if (masterProduk.length > 0) {
-                    statusEl.className = 'text-success fw-bold mb-1'; statusEl.innerText = `✔️ ${masterProduk.length} Data (Baru) [Barcode OK]`;
+                    // 1. KIRIM MASTER PRODUK KE FIREBASE PUSAT
+                    db.ref('master_produk').set(masterProduk, (error) => {
+                        if (error) {
+                            statusEl.className = 'text-danger fw-bold mb-1'; statusEl.innerText = '❌ Gagal ke Cloud';
+                        }
+                    });
+
+                    // 2. KIRIM SALDO STOK AWAL KE FIREBASE (node stok_produk)
+                    let initialStockMap = {};
+                    masterProduk.forEach(p => {
+                        initialStockMap[p.kode] = p.stock;
+                    });
+                    db.ref('stok_produk').update(initialStockMap);
+
+                    statusEl.className = 'text-success fw-bold mb-1'; statusEl.innerText = `✔️ ${masterProduk.length} Data (Cloud OK)`;
                     localStorage.setItem('artsoft_masterProd', JSON.stringify(masterProduk));
                     initProductAutocomplete(); toggleMasterUploadPanel();
-                } else { statusEl.className = 'text-danger fw-bold mb-1'; statusEl.innerText = '❌ Format Salah'; }
-            } catch (err) { statusEl.innerText = '❌ Error'; }
+                    artAlert("Data Produk & Stok berhasil di-update ke pusat untuk semua HP!");
+                } else { 
+                    statusEl.className = 'text-danger fw-bold mb-1'; statusEl.innerText = '❌ Format Salah'; 
+                }
+            } catch (err) { 
+                statusEl.innerText = '❌ Error Parsing'; 
+            }
         };
         reader.readAsArrayBuffer(file);
     }
@@ -1684,9 +1804,8 @@
 
         if (currentSessionItems.some(item => item.code === code)) { artAlert(`Barang "${name}" sudah ada di nota!`); return; }
         
-        if (foundProd) {
-            foundProd.stock = currentStock - totalDeduct;
-            try { localStorage.setItem('artsoft_masterProd', JSON.stringify(masterProduk)); } catch(e) {}
+       if (foundProd) {
+            updateStockOnline(code, -totalDeduct);
         }
 
         currentSessionItems.push({
@@ -1707,8 +1826,7 @@
         let foundProd = masterProduk.find(p => p.kode === item.code);
         if (foundProd) {
             let totalDeduct = item.totalPcs + (item.bonus || 0);
-            foundProd.stock = (parseFloat(foundProd.stock) || 0) + totalDeduct;
-            try { localStorage.setItem('artsoft_masterProd', JSON.stringify(masterProduk)); } catch(e) {}
+            updateStockOnline(item.code || item.produkCode, totalDeduct);
         }
         
         document.getElementById('inputProdCode').value = item.code;
