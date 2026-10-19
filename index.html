@@ -522,7 +522,7 @@
     // ==========================================
     // PENDENGAR MASTER PRODUK & CUSTOMER REAL-TIME
     // ==========================================
-    db.ref('master_produk').on('value', (snapshot) => {
+  db.ref('master_produk').on('value', (snapshot) => {
         let cloudProduk = snapshot.val();
         if (cloudProduk && Array.isArray(cloudProduk) && cloudProduk.length > 0) {
             masterProduk = cloudProduk;
