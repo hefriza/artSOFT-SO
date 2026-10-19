@@ -519,36 +519,7 @@
 
     firebase.initializeApp(firebaseConfig);
     const db = firebase.database("https://artsoft-order-default-rtdb.asia-southeast1.firebasedatabase.app/");
-    // ==========================================
-    // PENDENGAR MASTER PRODUK & CUSTOMER REAL-TIME
-    // ==========================================
-  db.ref('master_produk').on('value', (snapshot) => {
-        let cloudProduk = snapshot.val();
-        if (cloudProduk && Array.isArray(cloudProduk) && cloudProduk.length > 0) {
-            masterProduk = cloudProduk;
-            localStorage.setItem('artsoft_masterProd', JSON.stringify(masterProduk));
-            if (typeof initProductAutocomplete === 'function') initProductAutocomplete();
-            let statusProd = document.getElementById('statusProduk');
-            if (statusProd) {
-                statusProd.className = 'text-success fw-bold mb-1';
-                statusProd.innerText = `✔️ ${masterProduk.length} Data (Real-Time Cloud)`;
-            }
-        }
-    });
-
-    db.ref('master_customer').on('value', (snapshot) => {
-        let cloudCustomer = snapshot.val();
-        if (cloudCustomer && Array.isArray(cloudCustomer) && cloudCustomer.length > 0) {
-            masterCustomer = cloudCustomer;
-            localStorage.setItem('artsoft_masterCust', JSON.stringify(masterCustomer));
-            if (typeof initCustomerAutocomplete === 'function') initCustomerAutocomplete();
-            let statusCust = document.getElementById('statusCustomer');
-            if (statusCust) {
-                statusCust.className = 'text-success fw-bold mb-1';
-                statusCust.innerText = `✔️ ${masterCustomer.length} Data (Real-Time Cloud)`;
-            }
-        }
-    });
+    
     function updateStockOnline(kodeProduk, jumlahPerubahan) {
         let stokRef = db.ref('stok_produk/' + kodeProduk);
         stokRef.transaction(function(stokSaatIni) {
